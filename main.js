@@ -3,29 +3,37 @@ const express = require("express");
 const jwt = require("jsonwebtoken");
 
 const PORT = 4001;
+const SECRET_TOKEN = "HELLMANNS";
 
 const app = express();
 app.use(express.json());
 
 const db = new Client({
   user: "postgres",
-  host: "localhost",
-  database: "mtaa",
-  password: "1234",
+  host: "database-1.ciroug00mfvt.us-east-1.rds.amazonaws.com",
+  database: "postgres",
+  password: "mypassword",
   port: 5432,
+  ssl: { rejectUnauthorized: false },
 });
 
-app.post("/login", (req, res) => {
+
+app.post("/auth/login", (req, res) => {
   const { username, password } = req.body;
 
-  const token = jwt.sign({ username: username, password: password }, "REG");
-  //   db.query("SELECT * FROM public.users", (err, result) => {
-  //     if (err) throw err;
-  //     console.log(result);
+  const token = jwt.sign(
+    { username: username, password: password },
+    SECRET_TOKEN
+  );
 
-  //     res.json(result.rows);
-  //   });
-  res.json(token);
+//   db.query("SELECT * FROM public.users", (err, result) => {
+//     if (err) throw err;
+//     console.log(result);
+
+   
+//   });
+
+  res.json({ token: token, message: "Authorization successful" }).status(200);
 });
 
 app.get("/", (req, res) => {
