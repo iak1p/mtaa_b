@@ -17,23 +17,32 @@ const db = new Client({
   ssl: { rejectUnauthorized: false },
 });
 
-
 app.post("/auth/login", (req, res) => {
   const { username, password } = req.body;
 
-  const token = jwt.sign(
-    { username: username, password: password },
-    SECRET_TOKEN
+  db.query(
+    `SELECT * FROM public.users WHERE username = '${username}'`,
+    (err, result) => {
+      if (err) {
+        return res
+          .status(500)
+          .json({ message: "Error during user verification" });
+      }
+
+      if (result.rows.length == 0) {
+        return res.status(400).json({ message: "User does not exist" });
+      }
+
+      if (result.rows[0].password != password) {
+        return res.status(401).json({ message: "Password is incorrect" });
+      }
+
+      return res.status(200).json({
+        token: result.rows[0].token,
+        message: "Authorization successful",
+      });
+    }
   );
-
-//   db.query("SELECT * FROM public.users", (err, result) => {
-//     if (err) throw err;
-//     console.log(result);
-
-   
-//   });
-
-  res.json({ token: token, message: "Authorization successful" }).status(200);
 });
 
 app.post("/auth/register", (req, res) => {
@@ -51,20 +60,22 @@ app.post("/auth/register", (req, res) => {
       if (err) {
         return res
           .status(500)
-          .json({ message: "Ошибка при проверке пользователя" });
+          .json({ message: "Error during user verification" });
       }
 
       if (result.rows.length > 0) {
-        return res.status(400).json({ message: "Пользователь уже существует" });
+        return res.status(400).json({ message: "User already exists" });
       } else {
         db.query(
           `INSERT INTO public.users (username, token, password) values ('${username}', '${token}', ${password})`,
           (err, result) => {
             if (err) {
-              res.json({ message: "huyna" }).status(500);
-              throw err;
+              return res
+                .json({ message: "Error while creating a user" })
+                .status(500);
             }
-            res
+
+            return res
               .json({ message: "Registration successful", token: token })
               .status(200);
           }
