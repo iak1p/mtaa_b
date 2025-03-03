@@ -24,20 +24,18 @@ app.post("/auth/login", (req, res) => {
     `SELECT * FROM public.users WHERE username = '${username}'`,
     (err, result) => {
       if (err) {
-        return res
-          .status(500)
-          .json({ message: "Error during user verification" });
+        return res.status(500).json({ message: "Internal Server Error" });
       }
 
       if (result.rows.length == 0) {
-        return res.status(400).json({ message: "User does not exist" });
+        return res.status(404).json({ message: "User does not exist" });
       }
 
       if (result.rows[0].password != password) {
         return res.status(401).json({ message: "Password is incorrect" });
       }
 
-      return res.status(200).json({
+      return res.status(201).json({
         token: result.rows[0].token,
         message: "Authorization successful",
       });
@@ -48,36 +46,45 @@ app.post("/auth/login", (req, res) => {
 app.post("/auth/register", (req, res) => {
   const { username, password } = req.body;
 
-  const token = jwt.sign(
-    { username: username, password: password },
-    SECRET_TOKEN,
-    { noTimestamp: true }
-  );
-
   db.query(
     `SELECT * FROM public.users WHERE username = '${username}'`,
     (err, result) => {
       if (err) {
-        return res
-          .status(500)
-          .json({ message: "Error during user verification" });
+        return res.status(500).json({ message: "Internal Server Error" });
       }
 
       if (result.rows.length > 0) {
-        return res.status(400).json({ message: "User already exists" });
+        return res.status(409).json({ message: "User already exists" });
       } else {
         db.query(
-          `INSERT INTO public.users (username, token, password) values ('${username}', '${token}', ${password})`,
+          `INSERT INTO public.users (username, password) values ('${username}', ${password}) RETURNING id`,
           (err, result) => {
             if (err) {
-              return res
-                .json({ message: "Error while creating a user" })
-                .status(500);
+              return res.json({ message: "Internal Server Error" }).status(500);
             }
 
-            return res
-              .json({ message: "Registration successful", token: token })
-              .status(200);
+            const token = jwt.sign(
+              { id: result.rows[0].id, username: username },
+              SECRET_TOKEN,
+              {
+                noTimestamp: true,
+              }
+            );
+
+            db.query(
+              `UPDATE public.users SET token = '${token}' WHERE id = ${result.rows[0].id}`,
+              (err) => {
+                if (err) {
+                  return res
+                    .status(500)
+                    .json({ message: "Internal Server Error" });
+                }
+
+                return res
+                  .json({ message: "Registration successful", token: token })
+                  .status(201);
+              }
+            );
           }
         );
       }
@@ -85,24 +92,73 @@ app.post("/auth/register", (req, res) => {
   );
 });
 
-app.get("/", (req, res) => {
+app.get("/users/:id", (req, res) => {
   const token = req.headers["authorization"];
+  const id = req.params.id;
 
   if (!token) {
-    return res.status(401).json({ error: "Токен не предоставлен" });
+    return res.status(401).json({ error: "Unauthorized" });
   }
 
-  jwt.verify(token, "REG", (err, decoded) => {
-    if (err) {
-      return res.status(403).json({ error: "Недействительный токен" });
-    }
+  try {
+    jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
+      if (err) {
+        return res.status(403).json({ error: "Invalid token" });
+      }
 
-    db.query("SELECT * FROM public.users", (err, result) => {
-      if (err) throw err;
-      console.log(result);
-      res.json(result.rows);
+      db.query(
+        `SELECT username FROM public.users WHERE id = ${id}`,
+        (err, result) => {
+          if (err) {
+            return res.json("Internal Server Error").status(500);
+          }
+
+          if (result.rows.length == 0) {
+            return res.status(404).json({ message: "User does not exist" });
+          }
+
+          return res.json(result.rows[0]).status(200);
+        }
+      );
     });
-  });
+  } catch (err) {
+    console.log(err);
+  }
+});
+
+app.patch("/users/change/:id", (req, res) => {
+  const token = req.headers["authorization"];
+  const id = req.params.id;
+  const { username } = req.body;
+
+  if (!token) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
+      if (err) {
+        return res.status(403).json({ error: "Invalid token" });
+      }
+
+      if (decoded.id != id) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      db.query(
+        `UPDATE public.users SET username = '${username}' WHERE id = ${id}`,
+        (err) => {
+          if (err) {
+            return res.status(500).json({ message: "Internal Server Error" });
+          }
+
+          return res.json({ message: "Changes successful" }).status(201);
+        }
+      );
+    });
+  } catch (err) {
+    console.log(err);
+  }
 });
 
 async function connectDB() {
