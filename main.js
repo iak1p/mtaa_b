@@ -1,5 +1,6 @@
 const { Client } = require("pg");
 const express = require("express");
+const cors = require("cors");
 const jwt = require("jsonwebtoken");
 
 const PORT = 4001;
@@ -7,6 +8,8 @@ const SECRET_TOKEN = "HELLMANNS";
 
 const app = express();
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(cors());
 
 const db = new Client({
   user: "postgres",
@@ -57,7 +60,7 @@ app.post("/auth/register", (req, res) => {
         return res.status(409).json({ message: "User already exists" });
       } else {
         db.query(
-          `INSERT INTO public.users (username, password) values ('${username}', ${password}) RETURNING id`,
+          `INSERT INTO public.users (username, password) values ('${username}', '${password}') RETURNING id`,
           (err, result) => {
             if (err) {
               return res.json({ message: "Internal Server Error" }).status(500);
