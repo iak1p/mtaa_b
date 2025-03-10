@@ -1,6 +1,6 @@
 # Auth
 
-## Login
+## Login+
 
 ```md
 POST /auth/login
@@ -16,7 +16,7 @@ Responses
 }
 ```
 
-## Registration
+## Registration+
 
 ```md
 POST /auth/register
@@ -34,7 +34,7 @@ Responses
 
 # Shared Accounts
 
-## Get All Shared Accounts
+## Get All Shared Accounts+
 
 ```md
 GET /shared-accounts/{user-id}
