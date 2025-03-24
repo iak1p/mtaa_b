@@ -129,9 +129,42 @@ app.get("/users/:id", (req, res) => {
   }
 });
 
-app.get("/users/budgets/:id", (req, res) => {
+// app.get("/users/budgets/:id", (req, res) => {
+//   const token = req.headers["authorization"];
+//   const id = req.params.id;
+
+//   if (!token) {
+//     return res.status(401).json({ error: "Unauthorized" });
+//   }
+
+//   try {
+//     jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
+//       if (err) {
+//         return res.status(403).json({ error: "Invalid token" });
+//       }
+
+//       db.query(
+//         `SELECT * FROM "user_budget" ub JOIN budgets b ON ub.budget_id = b.budget_id WHERE ub.user_id = ${id}`,
+//         (err, result) => {
+//           if (err) {
+//             return res.json("Internal Server Error").status(500);
+//           }
+//           if (result.rows.length == 0) {
+//             return res
+//               .status(200)
+//               .json({ message: "User doesn't have any budgets." });
+//           }
+//           return res.json(result.rows).status(200);
+//         }
+//       );
+//     });
+//   } catch (err) {
+//     console.log(err);
+//   }
+// });
+
+app.get("/users/budgets/all", (req, res) => {
   const token = req.headers["authorization"];
-  const id = req.params.id;
 
   if (!token) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -144,15 +177,18 @@ app.get("/users/budgets/:id", (req, res) => {
       }
 
       db.query(
-        `SELECT b.budget_id, b.name FROM "user-budget" ub JOIN budgets b ON ub.budget_id = b.budget_id WHERE ub.user_id = ${id}`,
+        `SELECT * FROM "user_budget" ub JOIN budgets b ON ub.budget_id = b.budget_id WHERE ub.user_id = ${decoded.id}`,
         (err, result) => {
           if (err) {
+            console.log(err);
             return res.json("Internal Server Error").status(500);
           }
           if (result.rows.length == 0) {
-            return res.status(200).json({ message: "User doesn't have any budgets."});
+            return res
+              .status(200)
+              .json({ message: "User doesn't have any budgets." });
           }
-          return res.json(result.rows[0]).status(200);
+          return res.json(result.rows).status(200);
         }
       );
     });
