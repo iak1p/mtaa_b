@@ -4,6 +4,7 @@ const cors = require("cors");
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
 const fs = require("fs");
+const WebSocket = require("ws");
 
 const PORT = 4001;
 const SECRET_TOKEN = "HELLMANNS";
@@ -12,6 +13,8 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors());
+
+const wss = new WebSocket.Server({ port: 8080 });
 
 // const db = new Client({
 //   user: "postgres",
@@ -525,6 +528,86 @@ app.post("/budgets/:id/transactions", (req, res) => {
 });
 
 app.post("/budgets/create", (req, res) => {});
+
+app.get("/chats/:id/messages", (req, res) => {
+  const token = req.headers["authorization"];
+  const id = req.params.id;
+
+  if (!token) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+
+  jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
+    if (err) {
+      return res.status(403).json({ message: "Invalid token" });
+    }
+
+    db.query(
+      `select * from messages where budget_id = ${id}`,
+      (err, result) => {
+        if (err) {
+          console.log(err);
+          return res.status(500).json("Internal Server Error");
+        }
+
+        return res.json(result.rows).status(200);
+      }
+    );
+  });
+});
+
+wss.on("connection", (ws) => {
+  console.log("Client connected");
+  ws.id = Date.now();
+
+  ws.on("message", (message) => {
+    const data = JSON.parse(message);
+    console.log(data);
+
+    if (data.action === "send_message") {
+      console.log(`Новое сообщение: ${data.content}`);
+      const token = data.user_token;
+
+      if (!token) {
+        ws.send(JSON.stringify({ error: "Unauthorized" }));
+      }
+
+      jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
+        if (err) {
+          ws.send(JSON.stringify({ error: "Invalid token" }));
+        }
+        console.log(decoded);
+
+        db.query(
+          `INSERT INTO messages(user_id, content, created_at, budget_id) VALUES ($1, $2, $3, $4) RETURNING *`,
+          [
+            decoded.id,
+            data.content,
+            new Date().toISOString(),
+            parseInt(data.budget_id),
+          ],
+          (err, result) => {
+            if (err) {
+              ws.send(JSON.stringify({ error: "Internal Server Error" }));
+            }
+
+            console.log("Inserted message:", result.rows[0]);
+
+            wss.clients.forEach((client) => {
+              if (client.readyState === WebSocket.OPEN && client.id == ws.id) {
+                client.send(JSON.stringify(result.rows[0]));
+              }
+            });
+          }
+        );
+      });
+    }
+  });
+
+  ws.on("close", () => {
+    console.log("Client disconnected");
+  });
+});
 
 async function connectDB() {
   try {
