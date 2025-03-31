@@ -543,7 +543,7 @@ app.get("/chats/:id/messages", (req, res) => {
     }
 
     db.query(
-      `select * from messages where budget_id = ${id}`,
+      `select m.id, m.user_id, m.content, m.created_at, m.budget_id, username, img_uri  from messages m join users u on u.id = m.user_id where budget_id = ${id} order by m.created_at`,
       (err, result) => {
         if (err) {
           console.log(err);
@@ -556,56 +556,136 @@ app.get("/chats/:id/messages", (req, res) => {
   });
 });
 
+// wss.on("connection", (ws) => {
+//   console.log("Client connected");
+
+//   ws.on("message", (message) => {
+//     const data = JSON.parse(message);
+//     console.log(data);
+
+//     if (data.action === "send_message") {
+//       console.log(`Новое сообщение: ${data.content}`);
+//       const token = data.user_token;
+
+//       if (!token) {
+//         ws.send(JSON.stringify({ error: "Unauthorized" }));
+//       }
+
+//       jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
+//         if (err) {
+//           ws.send(JSON.stringify({ error: "Invalid token" }));
+//         }
+//         console.log(decoded);
+
+//         db.query(
+//           `INSERT INTO messages(user_id, content, created_at, budget_id) VALUES ($1, $2, $3, $4) RETURNING *`,
+//           [
+//             decoded.id,
+//             data.content,
+//             new Date().toISOString(),
+//             parseInt(data.budget_id),
+//           ],
+//           (err, result) => {
+//             if (err) {
+//               ws.send(JSON.stringify({ error: "Internal Server Error" }));
+//             }
+
+//             console.log("Inserted message:", result.rows[0]);
+
+//             wss.clients.forEach((client) => {
+//               if (client.readyState === WebSocket.OPEN) {
+//                 client.send(JSON.stringify(result.rows[0]));
+//               }
+//             });
+//           }
+//         );
+//       });
+//     }
+//   });
+
+//   ws.on("close", () => {
+//     console.log("Client disconnected");
+//   });
+// });
+
 wss.on("connection", (ws) => {
   console.log("Client connected");
-  ws.id = Date.now();
 
-  ws.on("message", (message) => {
-    const data = JSON.parse(message);
-    console.log(data);
+  ws.on("message", async (message) => {
+    try {
+      const data = JSON.parse(message);
+      console.log("Received message:", data);
 
-    if (data.action === "send_message") {
-      console.log(`Новое сообщение: ${data.content}`);
-      const token = data.user_token;
+      if (data.action === "send_message") {
+        console.log(`Новое сообщение: ${data.content}`);
 
-      if (!token) {
-        ws.send(JSON.stringify({ error: "Unauthorized" }));
-      }
-
-      jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
-        if (err) {
-          ws.send(JSON.stringify({ error: "Invalid token" }));
+        const token = data.user_token;
+        if (!token) {
+          return ws.send(JSON.stringify({ error: "Unauthorized" }));
         }
-        console.log(decoded);
 
-        db.query(
-          `INSERT INTO messages(user_id, content, created_at, budget_id) VALUES ($1, $2, $3, $4) RETURNING *`,
-          [
-            decoded.id,
-            data.content,
-            new Date().toISOString(),
-            parseInt(data.budget_id),
-          ],
-          (err, result) => {
-            if (err) {
-              ws.send(JSON.stringify({ error: "Internal Server Error" }));
+        jwt.verify(token, SECRET_TOKEN, async (err, decoded) => {
+          if (err) {
+            return ws.send(JSON.stringify({ error: "Invalid token" }));
+          }
+
+          console.log("Decoded token:", decoded);
+
+          try {
+            const result = await db.query(
+              `INSERT INTO messages(user_id, content, created_at, budget_id) 
+               VALUES ($1, $2, $3, $4) RETURNING *`,
+              [
+                decoded.id,
+                data.content,
+                new Date().toISOString(),
+                parseInt(data.budget_id),
+              ]
+            );
+
+            if (!result.rows.length) {
+              return ws.send(
+                JSON.stringify({ error: "Failed to insert message" })
+              );
             }
 
-            console.log("Inserted message:", result.rows[0]);
+            const newMessage = result.rows[0];
+            console.log("Inserted message:", newMessage);
 
             wss.clients.forEach((client) => {
-              if (client.readyState === WebSocket.OPEN && client.id == ws.id) {
+              if (
+                client.readyState === WebSocket.OPEN &&
+                client.budget_id === data.budget_id
+              ) {
                 client.send(JSON.stringify(result.rows[0]));
               }
             });
+          } catch (dbError) {
+            console.error("Database error:", dbError);
+            return ws.send(JSON.stringify({ error: "Internal Server Error" }));
           }
-        );
-      });
+        });
+      }
+    } catch (parseError) {
+      console.error("Invalid JSON received:", parseError);
+      ws.send(JSON.stringify({ error: "Invalid JSON format" }));
     }
   });
 
   ws.on("close", () => {
     console.log("Client disconnected");
+  });
+
+  ws.on("message", (message) => {
+    try {
+      const data = JSON.parse(message);
+      if (data.action === "join_chat" && data.budget_id) {
+        ws.budget_id = data.budget_id; 
+        console.log(`Client joined budget_id: ${ws.budget_id}`);
+      }
+    } catch (error) {
+      console.error("Error parsing join_chat message:", error);
+    }
   });
 });
 
