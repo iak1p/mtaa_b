@@ -16,15 +16,6 @@ app.use(cors());
 
 const wss = new WebSocket.Server({ port: 8080 });
 
-// const db = new Client({
-//   user: "postgres",
-//   host: "database-1.ciroug00mfvt.us-east-1.rds.amazonaws.com",
-//   database: "postgres",
-//   password: "mypassword",
-//   port: 5432,
-//   ssl: { rejectUnauthorized: false },
-// });
-
 const db = new Client({
   user: "avnadmin",
   password: process.env.PASSWORD,
@@ -36,6 +27,8 @@ const db = new Client({
     ca: fs.readFileSync(process.env.CA, "utf-8"),
   },
 });
+
+// AUTH
 
 app.post("/auth/login", (req, res) => {
   const { username, password } = req.body;
@@ -111,6 +104,8 @@ app.post("/auth/register", (req, res) => {
     }
   );
 });
+
+// USER
 
 app.get("/users/:id", (req, res) => {
   const token = req.headers["authorization"];
@@ -217,13 +212,17 @@ app.get("/users/budgets/all", (req, res) => {
   const token = req.headers["authorization"];
 
   if (!token) {
-    return res.status(401).json({ error: "Unauthorized" });
+    return res.status(401).json({
+      error: "Unauthorized",
+      message: "Authentication token is missing",
+      statusCode: 401,
+    });
   }
 
   try {
     jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
       if (err) {
-        return res.status(403).json({ error: "Invalid token" });
+        return res.status(403).json({ message: "Invalid token" });
       }
 
       db.query(
@@ -231,14 +230,14 @@ app.get("/users/budgets/all", (req, res) => {
         (err, result) => {
           if (err) {
             console.log(err);
-            return res.json("Internal Server Error").status(500);
+            return res.status(500).json("Internal Server Error");
           }
           if (result.rows.length == 0) {
             return res
-              .status(200)
+              .status(404)
               .json({ message: "User doesn't have any budgets." });
           }
-          return res.json(result.rows).status(200);
+          return res.status(200).json(result.rows);
         }
       );
     });
@@ -277,70 +276,232 @@ app.patch("/users/change/image", (req, res) => {
   }
 });
 
+// BUDGET
+
+app.post("/budgets/create", (req, res) => {
+  const token = req.headers["authorization"];
+  const { name, amount } = req.body;
+
+  if (!token) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+
+  jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
+    if (err) {
+      return res.status(403).json({ message: "Invalid token" });
+    }
+
+    db.query(
+      `insert into budgets(name, max_money, current_money) values($1, $2, $2) returning *`,
+      [name, amount],
+      (err, resultBudget) => {
+        if (err) {
+          return res.status(500).json({ message: "Internal Server Error" });
+        }
+        console.log(resultBudget.rows[0]);
+
+        db.query(
+          `insert into user_budgets(user_id, budget_id) values($1, $2)`,
+          [decoded.id, resultBudget.rows[0].id],
+          (err, result) => {
+            if (err) {
+              if (err.code === "23505") {
+                return res
+                  .status(409)
+                  .json({ message: "User already linked to this budget" });
+              }
+
+              return res.status(500).json({ message: "Internal Server Error" });
+            }
+
+            return res.status(200).json({
+              message: "Pooly created succfully",
+              body: resultBudget.rows[0],
+            });
+          }
+        );
+      }
+    );
+  });
+});
+
+// transactions
+
 app.get("/budgets/:id/transactions", (req, res) => {
   const token = req.headers["authorization"];
   const id = req.params.id;
 
   if (!token) {
-    return res.status(401).json({ error: "Unauthorized" });
+    return res.status(401).json({ message: "Unauthorized" });
   }
 
-  try {
-    jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
+  jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
+    if (err) {
+      return res.status(403).json({ message: "Invalid token" });
+    }
+
+    db.query(
+      `select amount, img_uri, t.id, username, date from transactions t join users u on u.id = t.user_id where t.budget_id = $1 order by date desc`,
+      [id],
+      (err, result) => {
+        if (err) {
+          return res.status(500).json({ message: "Internal Server Error" });
+        }
+
+        if (result.rows.length == 0) {
+          return res.status(200).json({ message: "No transactions yet" });
+        }
+
+        return res.status(200).json(result.rows);
+      }
+    );
+  });
+});
+
+app.get("/budgets/:id/transactions/:limit", (req, res) => {
+  const token = req.headers["authorization"];
+  const { id, limit } = req.params;
+
+  if (!token) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+
+  jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
+    if (err) {
+      return res.status(403).json({ message: "Invalid token" });
+    }
+
+    db.query(
+      `select amount, img_uri, t.id, username, date from transactions t join users u on u.id = t.user_id where t.budget_id = $1 order by date desc limit $2`,
+      [id, limit],
+      (err, result) => {
+        if (err) {
+          return res.status(500).json({ message: "Internal Server Error" });
+        }
+
+        if (result.rows.length == 0) {
+          return res.status(200).json({ message: "No transactions yet" });
+        }
+
+        return res.status(200).json(result.rows);
+      }
+    );
+  });
+});
+
+app.post("/budgets/:id/transactions", (req, res) => {
+  const token = req.headers["authorization"];
+  const id = req.params.id;
+  const { amount, date } = req.body;
+
+  if (!token) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+
+  jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
+    if (err) {
+      return res.status(403).json({ message: "Invalid token" });
+    }
+
+    db.query("begin", (err) => {
       if (err) {
-        return res.status(403).json({ error: "Invalid token" });
+        return res.status(500).json({ message: "Internal Server Error" });
       }
 
-      db.query(
-        `SELECT amount, img_uri, t.id, username, date FROM transactions t join users u on u.id = t.user_id WHERE t.budget_id = ${id} order by date desc`,
-        (err, result) => {
-          if (err) {
-            console.log(err);
-            return res.json("Internal Server Error").status(500);
-          }
-          if (result.rows.length == 0) {
-            return res.status(200).json({ message: "No transactions yet." });
-          }
-          return res.json(result.rows).status(200);
+      db.query(`select * from budgets where id = $1`, [id], (err, result) => {
+        if (err) {
+          db.query("rollback", () => {
+            return res.status(500).json({ message: "Internal Server Error" });
+          });
         }
-      );
+
+        if (result.rows.length == 0) {
+          db.query("rollback", () => {
+            return res.status(404).json({ message: "There is no such Pooly" });
+          });
+        }
+
+        const currentBalance = result.rows[0].current_money;
+        if (currentBalance - amount < 0) {
+          db.query("rollback", () => {
+            return res.status(422).json({ message: "Insufficient balance" });
+          });
+        } else {
+          db.query(
+            `insert into transactions(budget_id, user_id, amount, date) values ($1, $2, $3, $4) returning *`,
+            [id, decoded.id, amount, date],
+            (err, resultTransactions) => {
+              if (err) {
+                db.query("rollback", () => {
+                  return res
+                    .status(500)
+                    .json({ message: "Internal Server Error" });
+                });
+              } else {
+                db.query(
+                  `update budgets set current_money = current_money - $1 where id = $2`,
+                  [amount, id],
+                  (err, result) => {
+                    if (err) {
+                      db.query("rollback", () => {
+                        return res
+                          .status(500)
+                          .json({ message: "Internal Server Error" });
+                      });
+                    } else {
+                      db.query("commit", (err) => {
+                        if (err) {
+                          return res
+                            .status(500)
+                            .json({ message: "Internal Server Error" });
+                        }
+                        return res.status(200).json({
+                          message: "Transaction added and balance updated",
+                          body: resultTransactions.rows[0],
+                        });
+                      });
+                    }
+                  }
+                );
+              }
+            }
+          );
+        }
+      });
     });
-  } catch (err) {
-    console.log(err);
-  }
+  });
 });
+
+// users
 
 app.get("/budgets/:id/users", (req, res) => {
   const token = req.headers["authorization"];
   const id = req.params.id;
 
   if (!token) {
-    return res.status(401).json({ error: "Unauthorized" });
+    return res.status(401).json({ message: "Unauthorized" });
   }
 
-  try {
-    jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
-      if (err) {
-        return res.status(403).json({ error: "Invalid token" });
-      }
+  jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
+    if (err) {
+      return res.status(403).json({ message: "Invalid token" });
+    }
 
-      db.query(
-        `select * from user_budgets ub join users u on u.id = ub.user_id where budget_id = ${id}`,
-        (err, result) => {
-          if (err) {
-            console.log(err);
-            return res.json("Internal Server Error").status(500);
-          }
-          if (result.rows.length == 0) {
-            return res.status(200).json({ message: "No user" });
-          }
-          return res.json(result.rows).status(200);
+    db.query(
+      `select ub.id, username, img_uri from user_budgets ub join users u on u.id = ub.user_id where budget_id = $1`,
+      [id],
+      (err, result) => {
+        if (err) {
+          console.log(err);
+          return res.status(500).json({ message: "Internal Server Error" });
         }
-      );
-    });
-  } catch (err) {
-    console.log(err);
-  }
+        if (result.rows.length == 0) {
+          return res.status(404).json({ message: "No users in Pooly" });
+        }
+        return res.status(200).json(result.rows);
+      }
+    );
+  });
 });
 
 app.post("/budgets/:id/users", (req, res) => {
@@ -349,12 +510,12 @@ app.post("/budgets/:id/users", (req, res) => {
   const { username } = req.body;
 
   if (!token) {
-    return res.status(401).json({ error: "Unauthorized" });
+    return res.status(401).json({ message: "Unauthorized" });
   }
 
   jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
     if (err) {
-      return res.status(403).json({ error: "Invalid token" });
+      return res.status(403).json({ message: "Invalid token" });
     }
 
     db.query(
@@ -386,20 +547,19 @@ app.post("/budgets/:id/users", (req, res) => {
                   .json({ message: "User already in Pooly" });
               } else {
                 db.query(
-                  `insert into user_budgets(user_id, budget_id) values ($1, $2)`,
+                  `insert into user_budgets(user_id, budget_id) values ($1, $2) returning *`,
                   [userId, id],
-                  (err) => {
+                  (err, result) => {
                     if (err) {
                       return res
                         .status(500)
                         .json({ message: "Internal Server Error" });
                     }
 
-                    return res
-                      .json({
-                        message: "User succesfully added",
-                      })
-                      .status(200);
+                    return res.status(200).json({
+                      message: "User succesfully added",
+                      body: result.rows[0],
+                    });
                   }
                 );
               }
@@ -416,12 +576,12 @@ app.delete("/budgets/:id/users/drop", (req, res) => {
   const id = req.params.id;
 
   if (!token) {
-    return res.status(401).json({ error: "Unauthorized" });
+    return res.status(401).json({ message: "Unauthorized" });
   }
 
   jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
     if (err) {
-      return res.status(403).json({ error: "Invalid token" });
+      return res.status(403).json({ message: "Invalid token" });
     }
 
     db.query(
@@ -430,7 +590,7 @@ app.delete("/budgets/:id/users/drop", (req, res) => {
       (err, result) => {
         if (err) {
           console.log(err);
-          return res.json("Internal Server Error").status(500);
+          return res.status(500).json({ message: "Internal Server Error" });
         }
         return res
           .json({ message: "You succesfully droped Pooly" })
@@ -440,94 +600,7 @@ app.delete("/budgets/:id/users/drop", (req, res) => {
   });
 });
 
-app.post("/budgets/:id/transactions", (req, res) => {
-  const token = req.headers["authorization"];
-  const id = req.params.id;
-  const { amount, date } = req.body;
-
-  if (!token) {
-    return res.status(401).json({ message: "Unauthorized" });
-  }
-
-  jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
-    if (err) {
-      return res.status(403).json({ message: "Invalid token" });
-    }
-
-    db.query("begin", (err) => {
-      if (err) {
-        console.log(err);
-        return res.status(500).json({ message: "Internal Server Error" });
-      }
-
-      db.query(`select * from budgets where id = $1`, [id], (err, result) => {
-        if (err) {
-          db.query("rollback", () => {
-            console.log(err);
-            return res.status(500).json({ message: "Internal Server Error" });
-          });
-        }
-
-        if (result.rows.length == 0) {
-          db.query("rollback", () => {
-            return res.status(400).json({ message: "There is no such Pooly" });
-          });
-        }
-
-        const currentBalance = result.rows[0].current_money;
-        if (currentBalance - amount < 0) {
-          db.query("rollback", () => {
-            return res.status(400).json({ message: "Insufficient balance" });
-          });
-        } else {
-          db.query(
-            `insert into transactions(budget_id, user_id, amount, date) values ($1, $2, $3, $4)`,
-            [id, decoded.id, amount, date],
-            (err, result) => {
-              if (err) {
-                db.query("rollback", () => {
-                  console.log(err);
-                  return res
-                    .status(500)
-                    .json({ message: "Internal Server Error" });
-                });
-              } else {
-                db.query(
-                  `update budgets set current_money = current_money - $1 where id = $2`,
-                  [amount, id],
-                  (err, result) => {
-                    if (err) {
-                      db.query("rollback", () => {
-                        console.log(err);
-                        return res
-                          .status(500)
-                          .json({ message: "Internal Server Error" });
-                      });
-                    } else {
-                      db.query("commit", (err) => {
-                        if (err) {
-                          console.log(err);
-                          return res
-                            .status(500)
-                            .json({ message: "Internal Server Error" });
-                        }
-                        return res.status(200).json({
-                          message: "Transaction added and balance updated",
-                        });
-                      });
-                    }
-                  }
-                );
-              }
-            }
-          );
-        }
-      });
-    });
-  });
-});
-
-app.post("/budgets/create", (req, res) => {});
+// CHAT
 
 app.get("/chats/:id/messages", (req, res) => {
   const token = req.headers["authorization"];
@@ -543,7 +616,7 @@ app.get("/chats/:id/messages", (req, res) => {
     }
 
     db.query(
-      `select * from messages where budget_id = ${id}`,
+      `select m.id, m.user_id, m.content, m.created_at, m.budget_id, username, img_uri  from messages m join users u on u.id = m.user_id where budget_id = ${id} order by m.created_at`,
       (err, result) => {
         if (err) {
           console.log(err);
@@ -556,56 +629,136 @@ app.get("/chats/:id/messages", (req, res) => {
   });
 });
 
+// wss.on("connection", (ws) => {
+//   console.log("Client connected");
+
+//   ws.on("message", (message) => {
+//     const data = JSON.parse(message);
+//     console.log(data);
+
+//     if (data.action === "send_message") {
+//       console.log(`Новое сообщение: ${data.content}`);
+//       const token = data.user_token;
+
+//       if (!token) {
+//         ws.send(JSON.stringify({ error: "Unauthorized" }));
+//       }
+
+//       jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
+//         if (err) {
+//           ws.send(JSON.stringify({ error: "Invalid token" }));
+//         }
+//         console.log(decoded);
+
+//         db.query(
+//           `INSERT INTO messages(user_id, content, created_at, budget_id) VALUES ($1, $2, $3, $4) RETURNING *`,
+//           [
+//             decoded.id,
+//             data.content,
+//             new Date().toISOString(),
+//             parseInt(data.budget_id),
+//           ],
+//           (err, result) => {
+//             if (err) {
+//               ws.send(JSON.stringify({ error: "Internal Server Error" }));
+//             }
+
+//             console.log("Inserted message:", result.rows[0]);
+
+//             wss.clients.forEach((client) => {
+//               if (client.readyState === WebSocket.OPEN) {
+//                 client.send(JSON.stringify(result.rows[0]));
+//               }
+//             });
+//           }
+//         );
+//       });
+//     }
+//   });
+
+//   ws.on("close", () => {
+//     console.log("Client disconnected");
+//   });
+// });
+
 wss.on("connection", (ws) => {
   console.log("Client connected");
-  ws.id = Date.now();
 
-  ws.on("message", (message) => {
-    const data = JSON.parse(message);
-    console.log(data);
+  ws.on("message", async (message) => {
+    try {
+      const data = JSON.parse(message);
+      console.log("Received message:", data);
 
-    if (data.action === "send_message") {
-      console.log(`Новое сообщение: ${data.content}`);
-      const token = data.user_token;
+      if (data.action === "send_message") {
+        console.log(`Новое сообщение: ${data.content}`);
 
-      if (!token) {
-        ws.send(JSON.stringify({ error: "Unauthorized" }));
-      }
-
-      jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
-        if (err) {
-          ws.send(JSON.stringify({ error: "Invalid token" }));
+        const token = data.user_token;
+        if (!token) {
+          return ws.send(JSON.stringify({ error: "Unauthorized" }));
         }
-        console.log(decoded);
 
-        db.query(
-          `INSERT INTO messages(user_id, content, created_at, budget_id) VALUES ($1, $2, $3, $4) RETURNING *`,
-          [
-            decoded.id,
-            data.content,
-            new Date().toISOString(),
-            parseInt(data.budget_id),
-          ],
-          (err, result) => {
-            if (err) {
-              ws.send(JSON.stringify({ error: "Internal Server Error" }));
+        jwt.verify(token, SECRET_TOKEN, async (err, decoded) => {
+          if (err) {
+            return ws.send(JSON.stringify({ error: "Invalid token" }));
+          }
+
+          console.log("Decoded token:", decoded);
+
+          try {
+            const result = await db.query(
+              `INSERT INTO messages(user_id, content, created_at, budget_id) 
+               VALUES ($1, $2, $3, $4) RETURNING *`,
+              [
+                decoded.id,
+                data.content,
+                new Date().toISOString(),
+                parseInt(data.budget_id),
+              ]
+            );
+
+            if (!result.rows.length) {
+              return ws.send(
+                JSON.stringify({ error: "Failed to insert message" })
+              );
             }
 
-            console.log("Inserted message:", result.rows[0]);
+            const newMessage = result.rows[0];
+            console.log("Inserted message:", newMessage);
 
             wss.clients.forEach((client) => {
-              if (client.readyState === WebSocket.OPEN && client.id == ws.id) {
+              if (
+                client.readyState === WebSocket.OPEN &&
+                client.budget_id === data.budget_id
+              ) {
                 client.send(JSON.stringify(result.rows[0]));
               }
             });
+          } catch (dbError) {
+            console.error("Database error:", dbError);
+            return ws.send(JSON.stringify({ error: "Internal Server Error" }));
           }
-        );
-      });
+        });
+      }
+    } catch (parseError) {
+      console.error("Invalid JSON received:", parseError);
+      ws.send(JSON.stringify({ error: "Invalid JSON format" }));
     }
   });
 
   ws.on("close", () => {
     console.log("Client disconnected");
+  });
+
+  ws.on("message", (message) => {
+    try {
+      const data = JSON.parse(message);
+      if (data.action === "join_chat" && data.budget_id) {
+        ws.budget_id = data.budget_id;
+        console.log(`Client joined budget_id: ${ws.budget_id}`);
+      }
+    } catch (error) {
+      console.error("Error parsing join_chat message:", error);
+    }
   });
 });
 
