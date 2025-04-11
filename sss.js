@@ -28,3 +28,9 @@ return res.status(409).json({
   message: "User already linked to this budget",
   statusCode: 409,
 });
+
+return res.status(400).json({
+  error: "Bad Request",
+  message: "No file uploaded",
+  statusCode: 400,
+});

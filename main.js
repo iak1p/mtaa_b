@@ -5,6 +5,13 @@ const jwt = require("jsonwebtoken");
 require("dotenv").config();
 const fs = require("fs");
 const WebSocket = require("ws");
+const multer = require("multer");
+const { createClient } = require("@supabase/supabase-js");
+const upload = multer({ dest: "uploads/" });
+const supabase = createClient(
+  process.env.EXPO_PUBLIC_SUPABASE_URL,
+  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY
+);
 const bcrypt = require("bcrypt");
 
 const PORT = 4001;
@@ -432,34 +439,112 @@ app.get("/users/budgets/all", (req, res) => {
   }
 });
 
-app.patch("/users/change/image", (req, res) => {
+// app.patch("/users/change/image", (req, res) => {
+//   const token = req.headers["authorization"];
+//   const { url } = req.body;
+
+//   if (!token) {
+//     return res.status(401).json({ error: "Unauthorized" });
+//   }
+
+//   try {
+//     jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
+//       if (err) {
+//         return res.status(403).json({ error: "Invalid token" });
+//       }
+
+//       db.query(
+//         `UPDATE public.users SET img_uri = '${url}' WHERE id = ${decoded.id}`,
+//         (err) => {
+//           if (err) {
+//             return res.status(500).json({ message: "Internal Server Error" });
+//           }
+
+//           return res.status(201).json({ message: "Changes successful" });
+//         }
+//       );
+//     });
+//   } catch (err) {
+//     console.log(err);
+//   }
+// });
+
+app.patch("/users/change/image", upload.single("file"), async (req, res) => {
   const token = req.headers["authorization"];
-  const { url } = req.body;
+  const file = req.file;
 
   if (!token) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-
-  try {
-    jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
-      if (err) {
-        return res.status(403).json({ error: "Invalid token" });
-      }
-
-      db.query(
-        `UPDATE public.users SET img_uri = '${url}' WHERE id = ${decoded.id}`,
-        (err) => {
-          if (err) {
-            return res.status(500).json({ message: "Internal Server Error" });
-          }
-
-          return res.status(201).json({ message: "Changes successful" });
-        }
-      );
+    return res.status(401).json({
+      error: "Unauthorized",
+      message: "Authentication token is missing",
+      statusCode: 401,
     });
-  } catch (err) {
-    console.log(err);
   }
+
+  if (!file) {
+    return res.status(400).json({
+      error: "Bad Request",
+      message: "No file uploaded",
+      statusCode: 400,
+    });
+  }
+
+  jwt.verify(token, SECRET_TOKEN, async (err, decoded) => {
+    if (err) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "Invalid token",
+        statusCode: 403,
+      });
+    }
+
+    const fileBuffer = fs.readFileSync(file.path);
+    const fileName = `${Date.now()}.jpg`;
+
+    const { data, error } = await supabase.storage
+      .from("img")
+      .upload(fileName, fileBuffer, {
+        contentType: file.mimetype,
+      });
+
+    if (error) {
+      return res.status(500).json({
+        error: "Internal Server Error",
+        message: "An unexpected error occurred while processing your request",
+        statusCode: 500,
+      });
+    }
+
+    const { data: urlData } = supabase.storage
+      .from("img")
+      .getPublicUrl(fileName);
+
+    db.query(
+      `UPDATE public.users SET img_uri = '${urlData.publicUrl}' WHERE id = ${decoded.id}`,
+      (err) => {
+        if (err) {
+          return res.status(500).json({
+            error: "Internal Server Error",
+            message:
+              "An unexpected error occurred while processing your request",
+            statusCode: 500,
+          });
+        }
+
+        fs.unlink(file.path, (err) => {
+          if (err) {
+            console.error("Error while deleting file:", err);
+          } else {
+            console.log("File deleted successfully:", file.path);
+          }
+        });
+
+        return res
+          .status(200)
+          .json({ message: "Changes successful", url: urlData.publicUrl });
+      }
+    );
+  });
 });
 
 // BUDGET
@@ -554,7 +639,7 @@ app.get("/budgets/:id/transactions", (req, res) => {
     }
 
     db.query(
-      `select amount, img_uri, t.id, username, date from transactions t join users u on u.id = t.user_id where t.budget_id = $1 order by date desc`,
+      `select amount, img_uri, t.id, username, date, type, category from transactions t join users u on u.id = t.user_id where t.budget_id = $1 order by date desc`,
       [id],
       (err, result) => {
         if (err) {
@@ -598,7 +683,7 @@ app.get("/budgets/:id/transactions/:limit", (req, res) => {
     }
 
     db.query(
-      `select amount, img_uri, t.id, username, date from transactions t join users u on u.id = t.user_id where t.budget_id = $1 order by date desc limit $2`,
+      `select amount, img_uri, t.id, username, date, type, category from transactions t join users u on u.id = t.user_id where t.budget_id = $1 order by date desc limit $2`,
       [id, limit],
       (err, result) => {
         if (err) {
@@ -623,7 +708,7 @@ app.get("/budgets/:id/transactions/:limit", (req, res) => {
 app.post("/budgets/:id/transactions", (req, res) => {
   const token = req.headers["authorization"];
   const id = req.params.id;
-  const { amount, date } = req.body;
+  const { amount, date, type, category } = req.body;
 
   if (!token) {
     return res.status(401).json({
@@ -684,8 +769,8 @@ app.post("/budgets/:id/transactions", (req, res) => {
           });
         } else {
           db.query(
-            `insert into transactions(budget_id, user_id, amount, date) values ($1, $2, $3, $4) returning *`,
-            [id, decoded.id, amount, date],
+            `insert into transactions(budget_id, user_id, amount, date, type, category) values ($1, $2, $3, $4, $5, $6) returning *`,
+            [id, decoded.id, amount, date, type, category],
             (err, resultTransactions) => {
               if (err) {
                 db.query("rollback", () => {
