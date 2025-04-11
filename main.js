@@ -174,27 +174,44 @@ app.get("/users/:id", (req, res) => {
   const id = req.params.id;
 
   if (!token) {
-    return res.status(401).json({ error: "Unauthorized" });
+    return res.status(401).json({
+      error: "Unauthorized",
+      message: "Authentication token is missing",
+      statusCode: 401,
+    });
   }
 
   try {
     jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
       if (err) {
-        return res.status(403).json({ error: "Invalid token" });
+        return res.status(403).json({
+          error: "Forbidden",
+          message: "Invalid token",
+          statusCode: 403,
+        });
       }
 
       db.query(
         `SELECT username FROM public.users WHERE id = ${id}`,
         (err, result) => {
           if (err) {
-            return res.json("Internal Server Error").status(500);
+            return res.status(500).json({
+              error: "Internal Server Error",
+              message:
+                "An unexpected error occurred while processing your request",
+              statusCode: 500,
+            });
           }
 
           if (result.rows.length == 0) {
-            return res.status(404).json({ message: "User does not exist" });
+            return res.status(404).json({
+              error: "Not Found",
+              message: "User does not exist",
+              statusCode: 404,
+            });
           }
 
-          return res.json(result.rows[0]).status(200);
+          return res.status(200).json(result.rows[0]);
         }
       );
     });
@@ -207,27 +224,44 @@ app.get("/users/info/all", (req, res) => {
   const token = req.headers["authorization"];
 
   if (!token) {
-    return res.status(401).json({ error: "Unauthorized" });
+    return res.status(401).json({
+      error: "Unauthorized",
+      message: "Authentication token is missing",
+      statusCode: 401,
+    });
   }
 
   try {
     jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
       if (err) {
-        return res.status(403).json({ error: "Invalid token" });
+        return res.status(403).json({
+          error: "Forbidden",
+          message: "Invalid token",
+          statusCode: 403,
+        });
       }
 
       db.query(
         `SELECT * FROM users WHERE id = ${decoded.id}`,
         (err, result) => {
           if (err) {
-            return res.status(500).json("Internal Server Error");
+            return res.status(500).json({
+              error: "Internal Server Error",
+              message:
+                "An unexpected error occurred while processing your request",
+              statusCode: 500,
+            });
           }
 
           if (result.rows.length == 0) {
-            return res.status(404).json({ message: "User does not exist" });
+            return res.status(404).json({
+              error: "Not Found",
+              message: "User does not exist",
+              statusCode: 404,
+            });
           }
 
-          return res.json(result.rows[0]).status(200);
+          return res.status(200).json(result.rows[0]);
         }
       );
     });
@@ -241,12 +275,20 @@ app.put("/users/change/name", (req, res) => {
   const { username } = req.body;
 
   if (!token) {
-    return res.status(401).json({ error: "Unauthorized" });
+    return res.status(401).json({
+      error: "Unauthorized",
+      message: "Authentication token is missing",
+      statusCode: 401,
+    });
   }
   try {
     jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
       if (err) {
-        return res.status(403).json({ error: "Invalid token" });
+        return res.status(403).json({
+          error: "Forbidden",
+          message: "Invalid token",
+          statusCode: 403,
+        });
       }
       db.query(
         `SELECT * FROM public.users WHERE username = '${username}'`,
@@ -298,7 +340,7 @@ app.put("/users/change/name", (req, res) => {
                       });
                     }
 
-                    return res.status(201).json({
+                    return res.status(200).json({
                       message: "Username changed successful",
                       newtoken: token,
                     });
@@ -320,7 +362,11 @@ app.patch("/users/change/password", (req, res) => {
   const { password } = req.body;
 
   if (!token) {
-    return res.status(401).json({ error: "Unauthorized" });
+    return res.status(401).json({
+      error: "Unauthorized",
+      message: "Authentication token is missing",
+      statusCode: 401,
+    });
   }
 
   if (!password || password.length < 3) {
@@ -333,23 +379,37 @@ app.patch("/users/change/password", (req, res) => {
   try {
     jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
       if (err) {
-        return res.status(403).json({ error: "Invalid token" });
+        return res.status(403).json({
+          error: "Forbidden",
+          message: "Invalid token",
+          statusCode: 403,
+        });
       }
 
       bcrypt.hash(password, 10, (err, hashedPassword) => {
         if (err) {
-          return res.status(500).json({ error: "Failed to hash password" });
+          return res.status(500).json({
+            error: "Failed to hash password",
+            message:
+              "An unexpected error occurred while processing your request",
+            statusCode: 500,
+          });
         }
 
         db.query(
           `UPDATE public.users SET password = '${hashedPassword}' WHERE id = ${decoded.id}`,
           (err) => {
             if (err) {
-              return res.status(500).json({ message: "Internal Server Error" });
+              return res.status(500).json({
+                error: "Internal Server Error",
+                message:
+                  "An unexpected error occurred while processing your request",
+                statusCode: 500,
+              });
             }
 
             return res
-              .status(201)
+              .status(200)
               .json({ message: "Password changed successful" });
           }
         );
@@ -829,26 +889,36 @@ app.get("/budgets/:id/users", (req, res) => {
   const id = req.params.id;
 
   if (!token) {
-    return res.status(401).json({ message: "Unauthorized" });
+    return res.status(401).json({
+      error: "Unauthorized",
+      message: "Authentication token is missing",
+      statusCode: 401,
+    });
   }
 
   jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
     if (err) {
-      return res.status(403).json({ message: "Invalid token" });
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "Invalid token",
+        statusCode: 403,
+      });
     }
 
     db.query(
-      `select ub.id, username, img_uri from user_budgets ub join users u on u.id = ub.user_id where budget_id = $1`,
+      `select u.id, username, img_uri from user_budgets ub join users u on u.id = ub.user_id where budget_id = $1`,
       [id],
       (err, result) => {
         if (err) {
           console.log(err);
-          return res.status(500).json({ message: "Internal Server Error" });
+          return res.status(500).json({
+            error: "Internal Server Error",
+            message:
+              "An unexpected error occurred while processing your request",
+            statusCode: 500,
+          });
         }
-        if (result.rows.length == 0) {
-          return res.status(404).json({ message: "No users in Pooly" });
-        }
-        return res.status(200).json(result.rows);
+        return res.status(200).json({ users: result.rows });
       }
     );
   });
@@ -860,12 +930,20 @@ app.post("/budgets/:id/users", (req, res) => {
   const { username } = req.body;
 
   if (!token) {
-    return res.status(401).json({ message: "Unauthorized" });
+    return res.status(401).json({
+      error: "Unauthorized",
+      message: "Authentication token is missing",
+      statusCode: 401,
+    });
   }
 
   jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
     if (err) {
-      return res.status(403).json({ message: "Invalid token" });
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "Invalid token",
+        statusCode: 403,
+      });
     }
 
     db.query(
@@ -873,11 +951,20 @@ app.post("/budgets/:id/users", (req, res) => {
       [username],
       (err, result) => {
         if (err) {
-          return res.status(500).json({ message: "Internal Server Error" });
+          return res.status(500).json({
+            error: "Internal Server Error",
+            message:
+              "An unexpected error occurred while processing your request",
+            statusCode: 500,
+          });
         }
 
         if (result.rows.length == 0) {
-          return res.status(404).json({ message: "User not found" });
+          return res.status(404).json({
+            error: "Not Found",
+            message: "User didn`t find",
+            statusCode: 404,
+          });
         } else {
           const userId = result.rows[0].id;
 
@@ -886,24 +973,32 @@ app.post("/budgets/:id/users", (req, res) => {
             [userId, id],
             (err, result_user) => {
               if (err) {
-                return res
-                  .status(500)
-                  .json({ message: "Internal Server Error" });
+                return res.status(500).json({
+                  error: "Internal Server Error",
+                  message:
+                    "An unexpected error occurred while processing your request",
+                  statusCode: 500,
+                });
               }
 
               if (result_user.rows.length > 0) {
-                return res
-                  .status(409)
-                  .json({ message: "User already in Pooly" });
+                return res.status(409).json({
+                  error: "Conflict",
+                  message: "User already linked to this budget",
+                  statusCode: 409,
+                });
               } else {
                 db.query(
                   `insert into user_budgets(user_id, budget_id) values ($1, $2) returning *`,
                   [userId, id],
                   (err, result) => {
                     if (err) {
-                      return res
-                        .status(500)
-                        .json({ message: "Internal Server Error" });
+                      return res.status(500).json({
+                        error: "Internal Server Error",
+                        message:
+                          "An unexpected error occurred while processing your request",
+                        statusCode: 500,
+                      });
                     }
 
                     return res.status(200).json({
@@ -926,12 +1021,20 @@ app.delete("/budgets/:id/users/drop", (req, res) => {
   const id = req.params.id;
 
   if (!token) {
-    return res.status(401).json({ message: "Unauthorized" });
+    return res.status(401).json({
+      error: "Unauthorized",
+      message: "Authentication token is missing",
+      statusCode: 401,
+    });
   }
 
   jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
     if (err) {
-      return res.status(403).json({ message: "Invalid token" });
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "Invalid token",
+        statusCode: 403,
+      });
     }
 
     db.query(
@@ -940,11 +1043,16 @@ app.delete("/budgets/:id/users/drop", (req, res) => {
       (err, result) => {
         if (err) {
           console.log(err);
-          return res.status(500).json({ message: "Internal Server Error" });
+          return res.status(500).json({
+            error: "Internal Server Error",
+            message:
+              "An unexpected error occurred while processing your request",
+            statusCode: 500,
+          });
         }
         return res
-          .json({ message: "You succesfully droped Pooly" })
-          .status(200);
+          .status(200)
+          .json({ message: "You succesfully droped Pooly" });
       }
     );
   });
@@ -957,12 +1065,20 @@ app.get("/chats/:id/messages", (req, res) => {
   const id = req.params.id;
 
   if (!token) {
-    return res.status(401).json({ message: "Unauthorized" });
+    return res.status(401).json({
+      error: "Unauthorized",
+      message: "Authentication token is missing",
+      statusCode: 401,
+    });
   }
 
   jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
     if (err) {
-      return res.status(403).json({ message: "Invalid token" });
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "Invalid token",
+        statusCode: 403,
+      });
     }
 
     db.query(
@@ -970,10 +1086,15 @@ app.get("/chats/:id/messages", (req, res) => {
       (err, result) => {
         if (err) {
           console.log(err);
-          return res.status(500).json("Internal Server Error");
+          return res.status(500).json({
+            error: "Internal Server Error",
+            message:
+              "An unexpected error occurred while processing your request",
+            statusCode: 500,
+          });
         }
 
-        return res.json(result.rows).status(200);
+        return res.status(200).json(result.rows);
       }
     );
   });
