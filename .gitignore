@@ -11,3 +11,4 @@ node_modules
 *.sw?
 .env
 ca.pem
+sss.js
