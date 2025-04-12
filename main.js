@@ -607,6 +607,42 @@ app.patch("/users/change/image", upload.single("file"), async (req, res) => {
   });
 });
 
+app.get("/file/:fileName", async (req, res) => {
+  const fileName = req.params.fileName;
+  const token = req.headers["authorization"];
+
+  if (!token) {
+    return res.status(401).json({
+      error: "Unauthorized",
+      message: "Authentication token is missing",
+      statusCode: 401,
+    });
+  }
+
+  jwt.verify(token, SECRET_TOKEN, async (err, decoded) => {
+    if (err) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "Invalid token",
+        statusCode: 403,
+      });
+    }
+    const { data: urlData, error } = supabase.storage
+      .from("img")
+      .getPublicUrl(fileName);
+
+    if (error) {
+      return res.status(500).json({
+        error: "Internal Server Error",
+        message: "An unexpected error occurred while processing your request",
+        statusCode: 500,
+      });
+    }
+
+    res.status(200).send({ url: urlData.publicUrl });
+  });
+});
+
 // BUDGET
 
 app.post("/budgets/create", (req, res) => {
