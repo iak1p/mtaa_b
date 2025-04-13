@@ -9,3 +9,6 @@ node_modules
 *.njsproj
 *.sln
 *.sw?
+.env
+ca.pem
+sss.js
