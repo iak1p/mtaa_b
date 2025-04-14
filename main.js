@@ -13,6 +13,7 @@ const supabase = createClient(
   process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY
 );
 const bcrypt = require("bcrypt");
+const axios = require("axios");
 
 const PORT = 4001;
 const SECRET_TOKEN = "HELLMANNS";
@@ -640,6 +641,59 @@ app.get("/file/:fileName", async (req, res) => {
     }
 
     res.status(200).send({ url: urlData.publicUrl });
+  });
+});
+
+app.get("/file1.0/:fileName", async (req, res) => {
+  const fileName = req.params.fileName;
+  const token = req.headers["authorization"];
+
+  if (!token) {
+    return res.status(401).json({
+      error: "Unauthorized",
+      message: "Authentication token is missing",
+      statusCode: 401,
+    });
+  }
+
+  jwt.verify(token, SECRET_TOKEN, async (err, decoded) => {
+    if (err) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "Invalid token",
+        statusCode: 403,
+      });
+    }
+
+    const { data: urlData, error } = await supabase.storage
+      .from("img")
+      .createSignedUrl(fileName, 60); 
+
+    if (error || !urlData?.signedUrl) {
+      return res.status(500).json({
+        error: "Internal Server Error",
+        message: "Unable to get file URL",
+        statusCode: 500,
+      });
+    }
+
+    try {
+      const fileResponse = await axios.get(urlData.signedUrl, {
+        responseType: "stream",
+      });
+
+      res.setHeader("Content-Type", fileResponse.headers["content-type"]);
+      res.setHeader("Content-Disposition", `inline; filename="${fileName}"`);
+
+      fileResponse.data.pipe(res);
+    } catch (downloadErr) {
+      console.error(downloadErr);
+      return res.status(500).json({
+        error: "Internal Server Error",
+        message: "Unable to download file",
+        statusCode: 500,
+      });
+    }
   });
 });
 
