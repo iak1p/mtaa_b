@@ -169,7 +169,7 @@ app.post("/auth/register", (req, res) => {
 // USER
 
 // ??
-app.get("/users/:id", (req, res) => {
+app.get("/users/:id(\\d+)", (req, res) => {
   const token = req.headers["authorization"];
   const id = req.params.id;
 
@@ -737,6 +737,49 @@ app.get("/budgets/:id/transactions", (req, res) => {
     db.query(
       `select amount, img_uri, t.id, username, date, type, category from transactions t join users u on u.id = t.user_id where t.budget_id = $1 order by date desc`,
       [id],
+      (err, result) => {
+        if (err) {
+          return res.status(500).json({
+            error: "Internal Server Error",
+            message:
+              "An unexpected error occurred while processing your request",
+            statusCode: 500,
+          });
+        }
+
+        if (result.rows.length == 0) {
+          return res.status(200).json({ transaction: [] });
+        }
+
+        return res.status(200).json({ transaction: result.rows });
+      }
+    );
+  });
+});
+
+app.get("/users/transactions", (req, res) => {
+  const token = req.headers["authorization"];
+
+  if (!token) {
+    return res.status(401).json({
+      error: "Unauthorized",
+      message: "Authentication token is missing",
+      statusCode: 401,
+    });
+  }
+
+  jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
+    if (err) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "Invalid token",
+        statusCode: 403,
+      });
+    }
+
+    db.query(
+      `select * from transactions where user_id = $1 order by date desc`,
+      [decoded.id],
       (err, result) => {
         if (err) {
           return res.status(500).json({
