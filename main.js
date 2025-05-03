@@ -667,7 +667,7 @@ app.get("/file1.0/:fileName", async (req, res) => {
 
     const { data: urlData, error } = await supabase.storage
       .from("img")
-      .createSignedUrl(fileName, 60); 
+      .createSignedUrl(fileName, 60);
 
     if (error || !urlData?.signedUrl) {
       return res.status(500).json({
@@ -1285,6 +1285,47 @@ app.get("/chats/:id/messages", (req, res) => {
 //   });
 // });
 
+app.delete("/budgets/:id(\\d+)/drop/:user_id(\\d+)", (req, res) => {
+  const token = req.headers["authorization"];
+  const { id, user_id } = req.params;
+
+  if (!token) {
+    return res.status(401).json({
+      error: "Unauthorized",
+      message: "Authentication token is missing",
+      statusCode: 401,
+    });
+  }
+
+  jwt.verify(token, SECRET_TOKEN, (err, decoded) => {
+    if (err) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "Invalid token",
+        statusCode: 403,
+      });
+    }
+
+    db.query(
+      `delete from user_budgets where user_id = $1 and budget_id = $2`,
+      [user_id, id],
+      (err, result) => {
+        if (err) {
+          return res.status(500).json({
+            error: "Internal Server Error",
+            message:
+              "An unexpected error occurred while processing your request",
+            statusCode: 500,
+          });
+        }
+        return res.status(200).json({
+          message: "User droped",
+        });
+      }
+    );
+  });
+});
+
 wss.on("connection", (ws) => {
   console.log("Client connected");
 
@@ -1311,13 +1352,8 @@ wss.on("connection", (ws) => {
           try {
             const result = await db.query(
               `INSERT INTO messages(user_id, content, created_at, budget_id) 
-               VALUES ($1, $2, $3, $4) RETURNING *`,
-              [
-                decoded.id,
-                data.content,
-                new Date().toISOString(),
-                parseInt(data.budget_id),
-              ]
+               VALUES ($1, $2, now(), $3) RETURNING *`,
+              [decoded.id, data.content, parseInt(data.budget_id)]
             );
 
             if (!result.rows.length) {
