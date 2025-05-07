@@ -789,7 +789,7 @@ app.get("/budgets/:id/transactions", (req, res) => {
     }
 
     db.query(
-      `select amount, img_uri, t.id, username, date, type, category from transactions t join users u on u.id = t.user_id where t.budget_id = $1 order by date desc`,
+      `select amount, img_uri, t.id, username, date, type, category, latitude, longitude from transactions t join users u on u.id = t.user_id where t.budget_id = $1 order by date desc`,
       [id],
       (err, result) => {
         if (err) {
@@ -901,7 +901,7 @@ app.get("/budgets/:id/transactions/:limit", (req, res) => {
 app.post("/budgets/:id/transactions", (req, res) => {
   const token = req.headers["authorization"];
   const id = req.params.id;
-  const { amount, date, type, category } = req.body;
+  const { amount, date, type, category, location } = req.body;
 
   if (!token) {
     return res.status(401).json({
@@ -962,8 +962,17 @@ app.post("/budgets/:id/transactions", (req, res) => {
           });
         } else {
           db.query(
-            `insert into transactions(budget_id, user_id, amount, date, type, category) values ($1, $2, $3, $4, $5, $6) returning *`,
-            [id, decoded.id, amount, date, type, category],
+            `insert into transactions(budget_id, user_id, amount, date, type, category, latitude, longitude) values ($1, $2, $3, $4, $5, $6, $7, $8) returning *`,
+            [
+              id,
+              decoded.id,
+              amount,
+              date,
+              type,
+              category,
+              location.latitude,
+              location.longitude,
+            ],
             (err, resultTransactions) => {
               if (err) {
                 db.query("rollback", () => {
