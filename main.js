@@ -360,7 +360,7 @@ app.put("/users/change/name", (req, res) => {
 
 app.patch("/users/change/password", (req, res) => {
   const token = req.headers["authorization"];
-  const { password } = req.body;
+  const { oldPassword, newPassword } = req.body;
 
   if (!token) {
     return res.status(401).json({
@@ -370,10 +370,10 @@ app.patch("/users/change/password", (req, res) => {
     });
   }
 
-  if (!password || password.length < 3) {
+  if (!oldPassword || !newPassword || newPassword.length < 3) {
     return res.status(400).json({
       error: "Bad Request",
-      message: "Password must be at least 3 characters long",
+      message: "New password must be at least 3 characters long",
     });
   }
 
@@ -387,37 +387,69 @@ app.patch("/users/change/password", (req, res) => {
         });
       }
 
-      bcrypt.hash(password, 10, (err, hashedPassword) => {
-        if (err) {
-          return res.status(500).json({
-            error: "Failed to hash password",
-            message:
-              "An unexpected error occurred while processing your request",
-            statusCode: 500,
-          });
-        }
+      const userId = decoded.id;
 
-        db.query(
-          `UPDATE public.users SET password = '${hashedPassword}' WHERE id = ${decoded.id}`,
-          (err) => {
-            if (err) {
-              return res.status(500).json({
-                error: "Internal Server Error",
-                message:
-                  "An unexpected error occurred while processing your request",
-                statusCode: 500,
+      db.query(
+        `SELECT password FROM public.users WHERE id = $1`,
+        [userId],
+        (err, result) => {
+          if (err || result.rows.length === 0) {
+            return res.status(500).json({
+              error: "Internal Server Error",
+              message: "Could not retrieve user",
+              statusCode: 500,
+            });
+          }
+
+          const hashedPasswordFromDB = result.rows[0].password;
+
+          bcrypt.compare(oldPassword, hashedPasswordFromDB, (err, isMatch) => {
+            if (err || !isMatch) {
+              return res.status(401).json({
+                error: "Unauthorized",
+                message: "Old password is incorrect",
+                statusCode: 401,
               });
             }
 
-            return res
-              .status(200)
-              .json({ message: "Password changed successful" });
-          }
-        );
-      });
+            bcrypt.hash(newPassword, 10, (err, newHashedPassword) => {
+              if (err) {
+                return res.status(500).json({
+                  error: "Failed to hash new password",
+                  message: "An unexpected error occurred",
+                  statusCode: 500,
+                });
+              }
+
+              db.query(
+                `UPDATE public.users SET password = $1 WHERE id = $2`,
+                [newHashedPassword, userId],
+                (err) => {
+                  if (err) {
+                    return res.status(500).json({
+                      error: "Internal Server Error",
+                      message: "Could not update password",
+                      statusCode: 500,
+                    });
+                  }
+
+                  return res.status(200).json({
+                    message: "Password changed successfully",
+                  });
+                }
+              );
+            });
+          });
+        }
+      );
     });
   } catch (err) {
     console.log(err);
+    return res.status(500).json({
+      error: "Unexpected error",
+      message: "Something went wrong",
+      statusCode: 500,
+    });
   }
 });
 
@@ -721,8 +753,8 @@ app.post("/budgets/create", (req, res) => {
     }
 
     db.query(
-      `insert into budgets(name, max_money, current_money) values($1, $2, $2) returning *`,
-      [name, amount],
+      `insert into budgets(name, max_money, current_money, creator) values($1, $2, $2, $3) returning *`,
+      [name, amount, decoded.id],
       (err, resultBudget) => {
         if (err) {
           return res.status(500).json({
@@ -789,7 +821,7 @@ app.get("/budgets/:id/transactions", (req, res) => {
     }
 
     db.query(
-      `select amount, img_uri, t.id, username, date, type, category from transactions t join users u on u.id = t.user_id where t.budget_id = $1 order by date desc`,
+      `select amount, img_uri, t.id, username, date, type, category, latitude, longitude from transactions t join users u on u.id = t.user_id where t.budget_id = $1 order by date desc`,
       [id],
       (err, result) => {
         if (err) {
@@ -901,7 +933,7 @@ app.get("/budgets/:id/transactions/:limit", (req, res) => {
 app.post("/budgets/:id/transactions", (req, res) => {
   const token = req.headers["authorization"];
   const id = req.params.id;
-  const { amount, date, type, category } = req.body;
+  const { amount, date, type, category, location } = req.body;
 
   if (!token) {
     return res.status(401).json({
@@ -962,8 +994,17 @@ app.post("/budgets/:id/transactions", (req, res) => {
           });
         } else {
           db.query(
-            `insert into transactions(budget_id, user_id, amount, date, type, category) values ($1, $2, $3, $4, $5, $6) returning *`,
-            [id, decoded.id, amount, date, type, category],
+            `insert into transactions(budget_id, user_id, amount, date, type, category, latitude, longitude) values ($1, $2, $3, $4, $5, $6, $7, $8) returning *`,
+            [
+              id,
+              decoded.id,
+              amount,
+              date,
+              type,
+              category,
+              location.latitude,
+              location.longitude,
+            ],
             (err, resultTransactions) => {
               if (err) {
                 db.query("rollback", () => {
