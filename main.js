@@ -40,10 +40,19 @@ const db = new Client({
 // AUTH
 
 app.post("/auth/login", (req, res) => {
-  const { username, password } = req.body;
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({
+      error: "Bad Request",
+      message: "Email and password are required",
+      statusCode: 400,
+    });
+  }
 
   db.query(
-    `SELECT * FROM public.users WHERE username = '${username}'`,
+    `SELECT * FROM public.users WHERE email = $1`,
+    [email],
     (err, result) => {
       if (err) {
         return res.status(500).json({
@@ -53,7 +62,7 @@ app.post("/auth/login", (req, res) => {
         });
       }
 
-      if (result.rows.length == 0) {
+      if (result.rows.length === 0) {
         return res.status(404).json({
           error: "Not Found",
           message: "User does not exist",
@@ -61,13 +70,6 @@ app.post("/auth/login", (req, res) => {
         });
       }
 
-      // if (result.rows[0].password != password) {
-      //   return res.status(401).json({
-      //     error: "Unauthorized",
-      //     message: "Password is incorrect",
-      //     statusCode: 401,
-      //   });
-      // }
       bcrypt.compare(password, result.rows[0].password, (err, isMatch) => {
         if (err) {
           return res.status(500).json({
@@ -76,6 +78,7 @@ app.post("/auth/login", (req, res) => {
             statusCode: 500,
           });
         }
+
         if (!isMatch) {
           return res.status(401).json({
             error: "Unauthorized",
@@ -83,7 +86,8 @@ app.post("/auth/login", (req, res) => {
             statusCode: 401,
           });
         }
-        return res.status(201).json({
+
+        return res.status(200).json({
           message: "Authorization successful",
           token: result.rows[0].token,
         });
@@ -93,10 +97,19 @@ app.post("/auth/login", (req, res) => {
 });
 
 app.post("/auth/register", (req, res) => {
-  const { username, password } = req.body;
+  const { username, password, email } = req.body;
+
+  if (!username || !password || !email) {
+    return res.status(400).json({
+      error: "Bad Request",
+      message: "Username, email and password are required",
+      statusCode: 400,
+    });
+  }
 
   db.query(
-    `SELECT * FROM public.users WHERE username = '${username}'`,
+    `SELECT * FROM public.users WHERE username = $1 OR email = $2`,
+    [username, email],
     (err, result) => {
       if (err) {
         return res.status(500).json({
@@ -109,7 +122,7 @@ app.post("/auth/register", (req, res) => {
       if (result.rows.length > 0) {
         return res.status(409).json({
           error: "Conflict",
-          message: "User already exist",
+          message: "Username or email already exists",
           statusCode: 409,
         });
       } else {
@@ -123,13 +136,13 @@ app.post("/auth/register", (req, res) => {
           }
 
           db.query(
-            `INSERT INTO public.users (username, password) values ('${username}', '${hashedPassword}') RETURNING id`,
+            `INSERT INTO public.users (username, password, email) VALUES ($1, $2, $3) RETURNING id`,
+            [username, hashedPassword, email],
             (err, result) => {
               if (err) {
                 return res.status(500).json({
                   error: "Internal Server Error",
-                  message:
-                    "An unexpected error occurred while processing your request",
+                  message: "An unexpected error occurred while inserting user",
                   statusCode: 500,
                 });
               }
@@ -137,19 +150,17 @@ app.post("/auth/register", (req, res) => {
               const token = jwt.sign(
                 { id: result.rows[0].id, username: username },
                 SECRET_TOKEN,
-                {
-                  noTimestamp: true,
-                }
+                { noTimestamp: true }
               );
 
               db.query(
-                `UPDATE public.users SET token = '${token}' WHERE id = ${result.rows[0].id}`,
-                (err, user) => {
+                `UPDATE public.users SET token = $1 WHERE id = $2`,
+                [token, result.rows[0].id],
+                (err) => {
                   if (err) {
                     return res.status(500).json({
                       error: "Internal Server Error",
-                      message:
-                        "An unexpected error occurred while processing your request",
+                      message: "Error saving token",
                       statusCode: 500,
                     });
                   }
@@ -370,10 +381,17 @@ app.patch("/users/change/password", (req, res) => {
     });
   }
 
-  if (!oldPassword || !newPassword || newPassword.length < 3) {
+  if (!oldPassword) {
     return res.status(400).json({
       error: "Bad Request",
-      message: "New password must be at least 3 characters long",
+      message: "Current password cannot be empty.",
+    });
+  }
+
+  if (!newPassword || newPassword.length < 3) {
+    return res.status(400).json({
+      error: "Bad Request",
+      message: "New password must be at least 3 characters long.",
     });
   }
 
