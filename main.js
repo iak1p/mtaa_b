@@ -1410,8 +1410,21 @@ wss.on("connection", (ws) => {
 
           try {
             const result = await db.query(
-              `INSERT INTO messages(user_id, content, created_at, budget_id) 
-               VALUES ($1, $2, now(), $3) RETURNING *`,
+              `WITH inserted_message AS (
+                INSERT INTO messages(user_id, content, created_at, budget_id) 
+                VALUES ($1, $2, now(), $3) 
+                RETURNING * 
+              )
+              SELECT 
+                im.*, 
+                c.img_uri, 
+                c.username
+              FROM 
+                inserted_message im
+              JOIN 
+                users c 
+              ON 
+                c.id = im.user_id`,
               [decoded.id, data.content, parseInt(data.budget_id)]
             );
 
